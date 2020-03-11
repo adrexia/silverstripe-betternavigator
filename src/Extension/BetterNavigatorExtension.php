@@ -6,9 +6,10 @@ use SilverStripe\CMS\Controllers\SilverStripeNavigator;
 use SilverStripe\CMS\Model\SiteTree;
 use SilverStripe\Control\Controller;
 use SilverStripe\Control\Director;
+use SilverStripe\Control\HTTPResponse;
 use SilverStripe\Core\Config\Config;
+use SilverStripe\Core\Manifest\ModuleLoader;
 use SilverStripe\ORM\DataExtension;
-use SilverStripe\ORM\FieldType\DBField;
 use SilverStripe\Security\LogoutForm;
 use SilverStripe\Security\Member;
 use SilverStripe\Security\Permission;
@@ -27,18 +28,6 @@ class BetterNavigatorExtension extends DataExtension
     private $shouldDisplay = null;
 
     /**
-     * Load requirements in before final render. When the next extension point is called, it's too late.
-     * @return void
-     */
-    public function beforeCallActionHandler()
-    {
-        if ($this->shouldDisplay()) {
-            Requirements::javascript('jonom/silverstripe-betternavigator: javascript/betternavigator.js');
-            Requirements::css('jonom/silverstripe-betternavigator: css/betternavigator.css');
-        }
-    }
-
-    /**
      * @param $request
      * @param $action
      * @param DBHTMLText $result
@@ -46,15 +35,15 @@ class BetterNavigatorExtension extends DataExtension
      */
     public function afterCallActionHandler($request, $action, $result)
     {
-        if (!$this->shouldDisplay()) {
+        // Check that we're dealing with HTML
+        $isHtmlResponse = $result instanceof DBHTMLText ||
+            $result instanceof HTTPResponse && strpos($result->getHeader('content-type'), 'text/html') !== false;
+
+        if (!$isHtmlResponse || !$this->shouldDisplay()) {
             return $result;
         }
 
-        if (!($result instanceof DBHTMLText)) {
-            return $result;
-        }
-
-        $html = $result->getValue();
+        $html = $result instanceof DBHTMLText ? $result->getValue() : $result->getBody();
         $navigatorHTML = $this->generateNavigator()->getValue();
 
         // Inject the NavigatorHTML before the closing </body> tag
@@ -120,6 +109,7 @@ class BetterNavigatorExtension extends DataExtension
         $backURL = '?BackURL=' . urlencode($this->owner->Link());
         $logoutForm = LogoutForm::create($this->owner)->setName('BetterNavigatorLogoutForm');
         $logoutForm->Fields()->fieldByName('BackURL')->setValue($this->owner->Link());
+        $bnModule = ModuleLoader::getModule('jonom/silverstripe-betternavigator');
         $bNData = array_merge($nav, [
             'Member' => $member,
             'Stage' => Versioned::get_stage(),
@@ -129,7 +119,9 @@ class BetterNavigatorExtension extends DataExtension
             'LogoutForm' => $logoutForm,
             'EditLink' => $editLink,
             'Mode' => Director::get_environment_type(),
-            'IsDeveloper' => $isDeveloper
+            'IsDeveloper' => $isDeveloper,
+            'ScriptUrl' => $bnModule->getResource('javascript/betternavigator.js')->getURL(),
+            'CssUrl' => $bnModule->getResource('css/betternavigator.css')->getURL(),
         ]);
 
         // Merge with page data, send to template and render
